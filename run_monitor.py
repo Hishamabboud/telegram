@@ -14,8 +14,6 @@ from config.settings import (
     PIKUD_HAOREF_POLL_INTERVAL,
     NEWS_RSS_POLL_INTERVAL,
     AREA_TRANSLATIONS,
-    ALERT_KEYWORDS_EN,
-    ALERT_KEYWORDS_HE,
     NEWS_RSS_FEEDS,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
@@ -183,7 +181,7 @@ def format_news(items: list, falls: int, interceptions: int) -> str:
     """Format RSS news items for Telegram — bilingual English/Arabic."""
     now_str = get_israel_time()
     lines = [
-        f"{NEWS_EMOJI} <b>News Update / تحديث أخبار</b>",
+        f"{NEWS_EMOJI} <b>Impact Report / تقرير سقوط</b>",
         f"{CLOCK_EMOJI} <i>{now_str}</i>",
         "",
         f"{IMPACT_EMOJI} Falls / سقوط: <b>{falls}</b>  |  🛡️ Interceptions / اعتراضات: <b>{interceptions}</b>",
@@ -308,15 +306,35 @@ class MissileAlertMonitor:
             msg = format_alert(new_alerts, self.fall_count, self.interception_count)
             send_telegram(msg, disable_notification=False)
 
+    # Only match articles about actual falls, impacts, interceptions, damage
+    IMPACT_NEWS_KEYWORDS = [
+        # English — falls/impacts
+        "fall", "fallen", "fell", "impact", "hit", "hits", "struck", "landed",
+        "direct hit", "shrapnel", "crater", "damage", "damaged",
+        # English — interceptions
+        "intercept", "intercepted", "interception", "iron dome", "shot down",
+        "air defense", "air defence",
+        # English — casualties from rockets
+        "wounded in rocket", "injured in rocket", "killed in rocket",
+        "wounded in missile", "injured in missile",
+        # Hebrew — falls/impacts
+        "נפילה", "נפילות", "נפל", "פגיעה", "פגיעות", "פגיעה ישירה",
+        "שברים", "נזק", "רסיסים",
+        # Hebrew — interceptions
+        "יירוט", "יורט", "כיפת ברזל",
+        # Arabic — falls/impacts
+        "سقوط", "سقطت", "إصابة مباشرة", "أضرار", "شظايا",
+        # Arabic — interceptions
+        "اعتراض", "القبة الحديدية",
+    ]
+
     async def poll_news_rss(self):
-        """Poll Israeli news RSS feeds for missile impact reports."""
+        """Poll Israeli news RSS feeds for fall/interception reports only."""
         try:
             import feedparser
         except ImportError:
             logger.warning("feedparser not available, skipping RSS")
             return
-
-        all_keywords = [kw.lower() for kw in ALERT_KEYWORDS_EN] + ALERT_KEYWORDS_HE
 
         new_items = []
         for source_name, feed_url in NEWS_RSS_FEEDS.items():
@@ -331,7 +349,8 @@ class MissileAlertMonitor:
                     link = entry.get("link", "")
                     combined = (title + " " + summary).lower()
 
-                    if not any(kw in combined for kw in all_keywords):
+                    # Only match fall/impact/interception articles
+                    if not any(kw in combined for kw in self.IMPACT_NEWS_KEYWORDS):
                         continue
 
                     if link in self.seen_news:
