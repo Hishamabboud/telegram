@@ -119,10 +119,10 @@ def translate_area(area: str) -> str:
 
 
 def format_alert(alerts_data: list, falls: int = 0, interceptions: int = 0) -> str:
-    """Format siren alerts for Telegram."""
+    """Format siren alerts for Telegram — bilingual English/Arabic."""
     now_str = get_israel_time()
     lines = [
-        f"{SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI} <b>RED ALERT — INCOMING THREAT</b> {SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI}",
+        f"{SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI} <b>RED ALERT / إنذار أحمر</b> {SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI}",
         "",
         f"{CLOCK_EMOJI} <b>{now_str}</b>",
         "",
@@ -137,14 +137,15 @@ def format_alert(alerts_data: list, falls: int = 0, interceptions: int = 0) -> s
             data = [data]
 
         cat_map = {
-            "1": "🚀 Rocket / Missile Alert",
-            "2": "🚀 Rocket / Missile Alert",
-            "3": "⚠️ Earthquake Alert",
-            "6": "🛩️ Hostile Aircraft Intrusion",
-            "13": "⚠️ Terror Infiltration",
+            "1": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
+            "2": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
+            "3": ("⚠️ Earthquake Alert", "إنذار زلزال"),
+            "6": ("🛩️ Hostile Aircraft Intrusion", "اختراق طائرة معادية"),
+            "13": ("⚠️ Terror Infiltration", "تسلل إرهابي"),
         }
-        alert_type = cat_map.get(cat, f"⚠️ Alert (Category {cat})")
-        lines.append(f"<b>{alert_type}</b>")
+        en, ar = cat_map.get(cat, (f"⚠️ Alert (Category {cat})", "إنذار"))
+        lines.append(f"<b>{en}</b>")
+        lines.append(f"<b>{ar}</b>")
         if title:
             lines.append(f"<i>{title}</i>")
         lines.append("")
@@ -158,32 +159,32 @@ def format_alert(alerts_data: list, falls: int = 0, interceptions: int = 0) -> s
         else:
             for area in areas[:8]:
                 lines.append(f"  {MISSILE_EMOJI} {area}")
-            lines.append(f"  ... and <b>{len(areas) - 8} more areas</b>")
+            lines.append(f"  ... +<b>{len(areas) - 8}</b> more / أخرى")
         lines.append("")
 
     if total_areas > 5:
-        lines.append(f"{WARNING_EMOJI} <b>Large-scale barrage — {total_areas} areas under alert</b>")
+        lines.append(f"{WARNING_EMOJI} <b>Large barrage — {total_areas} areas / قصف واسع — {total_areas} منطقة</b>")
         lines.append("")
 
-    lines.append(f"{SHIELD_EMOJI} <b>Seek shelter immediately. Stay in protected space for 10 minutes.</b>")
+    lines.append(f"{SHIELD_EMOJI} <b>Seek shelter immediately / توجّهوا إلى الملاجئ فوراً</b>")
     lines.append("")
     if falls > 0 or interceptions > 0:
-        lines.append(f"📊 <b>Today:</b> {IMPACT_EMOJI} {falls} fall(s)  |  🛡️ {interceptions} interception(s)")
+        lines.append(f"📊 {IMPACT_EMOJI} Falls / سقوط: <b>{falls}</b>  |  🛡️ Interceptions / اعتراضات: <b>{interceptions}</b>")
         lines.append("")
     lines.append("─" * 30)
-    lines.append("<i>Source: Pikud HaOref (Home Front Command)</i>")
+    lines.append("<i>Pikud HaOref / بيكود هعورف</i>")
 
     return "\n".join(lines)
 
 
 def format_news(items: list, falls: int, interceptions: int) -> str:
-    """Format RSS news items for Telegram with fall/interception counters."""
+    """Format RSS news items for Telegram — bilingual English/Arabic."""
     now_str = get_israel_time()
     lines = [
-        f"{NEWS_EMOJI} <b>MISSILE NEWS UPDATE</b>",
+        f"{NEWS_EMOJI} <b>News Update / تحديث أخبار</b>",
         f"{CLOCK_EMOJI} <i>{now_str}</i>",
         "",
-        f"{IMPACT_EMOJI} Falls: <b>{falls}</b>  |  🛡️ Interceptions: <b>{interceptions}</b>",
+        f"{IMPACT_EMOJI} Falls / سقوط: <b>{falls}</b>  |  🛡️ Interceptions / اعتراضات: <b>{interceptions}</b>",
         "",
     ]
     for i, item in enumerate(items[:5], 1):
@@ -195,11 +196,11 @@ def format_news(items: list, falls: int, interceptions: int) -> str:
         if snippet:
             lines.append(f"<i>{snippet}</i>")
         if link:
-            lines.append(f"📎 <a href=\"{link}\">Read more ({source})</a>")
+            lines.append(f"📎 <a href=\"{link}\">Read more / اقرأ المزيد ({source})</a>")
         lines.append("")
 
     lines.append("─" * 30)
-    lines.append("<i>🤖 Israeli media monitor</i>")
+    lines.append("<i>🤖 Israeli media / إعلام إسرائيلي</i>")
     return "\n".join(lines)
 
 
@@ -405,13 +406,12 @@ class MissileAlertMonitor:
 
         # Send startup message
         send_telegram(
-            f"🤖 <b>Bot Status</b>\n"
+            f"🤖 <b>Bot Status / حالة البوت</b>\n"
             f"{CLOCK_EMOJI} {get_israel_time()}\n\n"
-            f"🟢 <b>Bot started successfully</b>\n\n"
-            f"Monitoring:\n"
-            f"• Pikud HaOref (real-time alerts) — every 3s\n"
-            f"• Israeli news feeds — triggered by siren alerts ({self.NEWS_WINDOW_MINUTES}min window)\n\n"
-            f"Alerts will be posted automatically.",
+            f"🟢 <b>Bot started / البوت يعمل</b>\n\n"
+            f"• Pikud HaOref alerts every 3s / إنذارات بيكود هعورف كل 3 ثوانٍ\n"
+            f"• News after sirens ({self.NEWS_WINDOW_MINUTES}min) / أخبار بعد الإنذار ({self.NEWS_WINDOW_MINUTES} دقيقة)\n\n"
+            f"Alerts posted automatically / الإنذارات تُنشر تلقائياً",
             disable_notification=True,
         )
 
