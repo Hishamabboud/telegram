@@ -137,13 +137,15 @@ def format_alert(alerts_data: list, falls: int = 0, interceptions: int = 0) -> s
             data = [data]
 
         cat_map = {
+            "0": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
             "1": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
             "2": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
             "3": ("⚠️ Earthquake Alert", "إنذار زلزال"),
             "6": ("🛩️ Hostile Aircraft Intrusion", "اختراق طائرة معادية"),
             "13": ("⚠️ Terror Infiltration", "تسلل إرهابي"),
         }
-        en, ar = cat_map.get(cat, (f"⚠️ Alert (Category {cat})", "إنذار"))
+        # Default to rocket alert for unknown categories (most common)
+        en, ar = cat_map.get(cat, ("🚀 Rocket / Missile Alert", "إنذار صواريخ"))
         lines.append(f"<b>{en}</b>")
         lines.append(f"<b>{ar}</b>")
         if title:
