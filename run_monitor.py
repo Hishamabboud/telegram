@@ -26,7 +26,9 @@ from config.settings import (
     CLOCK_EMOJI,
     NEWS_EMOJI,
     MAP_EMOJI,
+    IMPACT_EMOJI,
 )
+import re
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,7 +118,7 @@ def translate_area(area: str) -> str:
     return area
 
 
-def format_alert(alerts_data: list) -> str:
+def format_alert(alerts_data: list, falls: int = 0, interceptions: int = 0) -> str:
     """Format siren alerts for Telegram."""
     now_str = get_israel_time()
     lines = [
@@ -165,18 +167,23 @@ def format_alert(alerts_data: list) -> str:
 
     lines.append(f"{SHIELD_EMOJI} <b>Seek shelter immediately. Stay in protected space for 10 minutes.</b>")
     lines.append("")
+    if falls > 0 or interceptions > 0:
+        lines.append(f"📊 <b>Today:</b> {IMPACT_EMOJI} {falls} fall(s)  |  🛡️ {interceptions} interception(s)")
+        lines.append("")
     lines.append("─" * 30)
     lines.append("<i>Source: Pikud HaOref (Home Front Command)</i>")
 
     return "\n".join(lines)
 
 
-def format_news(items: list) -> str:
-    """Format RSS news items for Telegram."""
+def format_news(items: list, falls: int, interceptions: int) -> str:
+    """Format RSS news items for Telegram with fall/interception counters."""
     now_str = get_israel_time()
     lines = [
         f"{NEWS_EMOJI} <b>MISSILE NEWS UPDATE</b>",
         f"{CLOCK_EMOJI} <i>{now_str}</i>",
+        "",
+        f"{IMPACT_EMOJI} Falls: <b>{falls}</b>  |  🛡️ Interceptions: <b>{interceptions}</b>",
         "",
     ]
     for i, item in enumerate(items[:5], 1):
@@ -197,13 +204,39 @@ def format_news(items: list) -> str:
 
 
 class MissileAlertMonitor:
-    """Main monitor using curl for all HTTP."""
+    """Main monitor using curl for all HTTP. News only triggers after siren alerts."""
+
+    # How long after a siren to keep polling news for impact reports
+    NEWS_WINDOW_MINUTES = 20
+    NEWS_POLL_INTERVAL = 30  # Poll news every 30s during active window
+
+    # Keywords that indicate a fall/impact
+    FALL_KEYWORDS = [
+        "fall", "fallen", "fell", "impact", "hit", "struck", "landed",
+        "נפילה", "נפילות", "פגיעה", "פגיעות", "נפל",
+    ]
+    # Keywords that indicate an interception
+    INTERCEPTION_KEYWORDS = [
+        "intercept", "intercepted", "interception", "iron dome", "shot down",
+        "יירוט", "יורט", "כיפת ברזל", "הופל",
+    ]
 
     def __init__(self):
         self.seen_alerts: set = set()
         self.seen_news: set = set()
         self.alert_count = 0
         self.news_count = 0
+        self.fall_count = 0
+        self.interception_count = 0
+        self._last_siren_time: datetime | None = None  # When last siren was detected
+
+    @property
+    def _news_window_active(self) -> bool:
+        """True if we're within the news-fetch window after a siren."""
+        if self._last_siren_time is None:
+            return False
+        elapsed = (datetime.now(timezone.utc) - self._last_siren_time).total_seconds()
+        return elapsed < self.NEWS_WINDOW_MINUTES * 60
 
     def _dedup_key(self, alert: dict) -> str:
         data = alert.get("data", [])
@@ -248,12 +281,13 @@ class MissileAlertMonitor:
 
         if new_alerts:
             self.alert_count += len(new_alerts)
-            logger.info(f"🚨 NEW SIREN ALERT! {len(new_alerts)} alert(s)")
-            msg = format_alert(new_alerts)
+            self._last_siren_time = datetime.now(timezone.utc)
+            logger.info(f"🚨 NEW SIREN ALERT! {len(new_alerts)} alert(s) — news window activated for {self.NEWS_WINDOW_MINUTES}min")
+            msg = format_alert(new_alerts, self.fall_count, self.interception_count)
             send_telegram(msg, disable_notification=False)
 
     async def poll_news_rss(self):
-        """Poll Israeli news RSS feeds for missile-related articles."""
+        """Poll Israeli news RSS feeds for missile impact reports."""
         try:
             import feedparser
         except ImportError:
@@ -297,9 +331,17 @@ class MissileAlertMonitor:
             self.seen_news = set(items[len(items) // 2:])
 
         if new_items:
+            # Count falls and interceptions from article text
+            for item in new_items:
+                text_lower = (item.get("title", "") + " " + item.get("snippet", "")).lower()
+                if any(kw in text_lower for kw in self.FALL_KEYWORDS):
+                    self.fall_count += 1
+                if any(kw in text_lower for kw in self.INTERCEPTION_KEYWORDS):
+                    self.interception_count += 1
+
             self.news_count += len(new_items)
-            logger.info(f"📰 {len(new_items)} new missile-related news article(s)")
-            msg = format_news(new_items)
+            logger.info(f"📰 {len(new_items)} new article(s) | Falls: {self.fall_count} | Interceptions: {self.interception_count}")
+            msg = format_news(new_items, self.fall_count, self.interception_count)
             send_telegram(msg, disable_notification=True)
 
     async def pikud_loop(self):
@@ -313,21 +355,32 @@ class MissileAlertMonitor:
             await asyncio.sleep(PIKUD_HAOREF_POLL_INTERVAL)
 
     async def news_loop(self):
-        """Continuously poll news RSS every 60 seconds."""
-        logger.info(f"🟢 News RSS monitor started (polling every {NEWS_RSS_POLL_INTERVAL}s)")
+        """Poll news RSS only when triggered by a siren alert."""
+        logger.info("🟢 News monitor started (siren-triggered only)")
         while True:
-            try:
-                await self.poll_news_rss()
-            except Exception as e:
-                logger.error(f"News poll error: {e}")
-            await asyncio.sleep(NEWS_RSS_POLL_INTERVAL)
+            if self._news_window_active:
+                try:
+                    remaining = self.NEWS_WINDOW_MINUTES * 60 - (
+                        datetime.now(timezone.utc) - self._last_siren_time
+                    ).total_seconds()
+                    logger.info(f"📰 News window active ({remaining:.0f}s remaining), polling RSS...")
+                    await self.poll_news_rss()
+                except Exception as e:
+                    logger.error(f"News poll error: {e}")
+                await asyncio.sleep(self.NEWS_POLL_INTERVAL)
+            else:
+                # Idle — check every 5s if a siren has activated the window
+                await asyncio.sleep(5)
 
     async def status_loop(self):
         """Log periodic status every 5 minutes."""
         while True:
             await asyncio.sleep(300)
+            window_status = "ACTIVE" if self._news_window_active else "idle"
             logger.info(
-                f"📊 Status: {self.alert_count} alerts, {self.news_count} news items posted"
+                f"📊 Status: {self.alert_count} alerts, {self.news_count} news | "
+                f"💥 {self.fall_count} falls, 🛡️ {self.interception_count} interceptions | "
+                f"news window: {window_status}"
             )
 
     async def run(self):
@@ -357,7 +410,7 @@ class MissileAlertMonitor:
             f"🟢 <b>Bot started successfully</b>\n\n"
             f"Monitoring:\n"
             f"• Pikud HaOref (real-time alerts) — every 3s\n"
-            f"• Israeli news feeds — every 60s\n\n"
+            f"• Israeli news feeds — triggered by siren alerts ({self.NEWS_WINDOW_MINUTES}min window)\n\n"
             f"Alerts will be posted automatically.",
             disable_notification=True,
         )
