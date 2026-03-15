@@ -248,25 +248,44 @@ class MissileAlertMonitor:
         return f"{alert.get('cat', '')}:{areas}:{now}"
 
     async def poll_pikud_haoref(self):
-        """Poll Pikud HaOref for siren alerts."""
+        """Poll for siren alerts — tries Pikud HaOref first, falls back to Tzofar API."""
+        # Try Pikud HaOref first
         text = curl_get(PIKUD_HAOREF_URL, headers=PIKUD_HAOREF_HEADERS)
         text = text.strip()
 
-        if not text or text == "null":
-            return
-
-        if text.startswith('\ufeff'):
-            text = text[1:]
-
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return
-
-        if isinstance(data, dict):
-            data = [data]
-        if not isinstance(data, list):
-            return
+        # If blocked (Access Denied / HTML response), try Tzofar API
+        if not text or text == "null" or text.startswith("<"):
+            text = curl_get("https://api.tzevaadom.co.il/notifications")
+            text = text.strip()
+            if not text or text == "[]":
+                return
+            # Tzofar returns a list of alert objects
+            try:
+                tzofar_data = json.loads(text)
+            except json.JSONDecodeError:
+                return
+            if not tzofar_data:
+                return
+            # Convert Tzofar format to standard format
+            data = []
+            for item in tzofar_data:
+                data.append({
+                    "id": item.get("notificationId", ""),
+                    "cat": item.get("threat", 1),
+                    "title": item.get("title", ""),
+                    "data": item.get("cities", []),
+                })
+        else:
+            if text.startswith('\ufeff'):
+                text = text[1:]
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                return
+            if isinstance(data, dict):
+                data = [data]
+            if not isinstance(data, list):
+                return
 
         new_alerts = []
         for alert in data:
