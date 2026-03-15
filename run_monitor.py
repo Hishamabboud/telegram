@@ -14,8 +14,6 @@ from config.settings import (
     PIKUD_HAOREF_POLL_INTERVAL,
     NEWS_RSS_POLL_INTERVAL,
     AREA_TRANSLATIONS,
-    ALERT_KEYWORDS_EN,
-    ALERT_KEYWORDS_HE,
     NEWS_RSS_FEEDS,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
@@ -111,68 +109,99 @@ def escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# Hebrew → (English, Arabic) area translations
+AREA_TRANSLATIONS_AR = {
+    "תל אביב - מרכז העיר": "تل أبيب",
+    "תל אביב - דרום העיר": "تل أبيب",
+    "תל אביב - צפון הישן": "تل أبيب",
+    "חיפה - כרמל ועיר תחתית": "حيفا",
+    "חיפה - מערב": "حيفا",
+    "חיפה - נווה שאנן": "حيفا",
+    "ירושלים - מרכז": "القدس",
+    "באר שבע": "بئر السبع",
+    "אשדוד": "أسدود",
+    "אשקלון": "عسقلان",
+    "שדרות": "سديروت",
+    "נתיבות": "نتيفوت",
+    "אופקים": "أوفاكيم",
+    "קריית שמונה": "كريات شمونا",
+    "נהריה": "نهاريا",
+    "עכו": "عكا",
+    "כרמיאל": "كرميئيل",
+    "צפת": "صفد",
+    "טבריה": "طبريا",
+    "עפולה": "العفولة",
+    "מגדל העמק": "مجدال هعيمق",
+    "נצרת": "الناصرة",
+    "חדרה": "الخضيرة",
+    "נתניה": "نتانيا",
+    "הרצליה": "هرتسليا",
+    "פתח תקווה": "بيتح تكفا",
+    "ראשון לציון": "ريشون لتسيون",
+    "רחובות": "رحوفوت",
+    "לוד": "اللد",
+    "רמלה": "الرملة",
+    "מודיעין": "موديعين",
+    "בית שמש": "بيت شيمش",
+    "דימונה": "ديمونا",
+    "אילת": "إيلات",
+    "קריית גת": "كريات جات",
+    "מטולה": "متولا",
+    "מנרה": "منارة",
+    "מרגליות": "مرجليوت",
+    "בית ג'אן": "بيت جن",
+    "חורפיש": "حرفيش",
+}
+
+
 def translate_area(area: str) -> str:
-    eng = AREA_TRANSLATIONS.get(area)
-    if eng:
-        return f"{eng} ({area})"
+    eng = AREA_TRANSLATIONS.get(area, "")
+    ar = AREA_TRANSLATIONS_AR.get(area, "")
+    if eng and ar:
+        return f"{eng} / {ar}"
+    elif eng:
+        return eng
+    elif ar:
+        return f"{area} / {ar}"
     return area
 
 
 def format_alert(alerts_data: list, falls: int = 0, interceptions: int = 0) -> str:
     """Format siren alerts for Telegram — bilingual English/Arabic."""
     now_str = get_israel_time()
-    lines = [
-        f"{SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI} <b>RED ALERT / إنذار أحمر</b> {SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI}",
-        "",
-        f"{CLOCK_EMOJI} <b>{now_str}</b>",
-        "",
-    ]
 
-    total_areas = 0
+    # Determine alert type
+    cat = str(alerts_data[0].get("cat", "")) if alerts_data else ""
+    cat_map = {
+        "0": ("🚀 Rockets / صواريخ", "🚀"),
+        "1": ("🚀 Rockets / صواريخ", "🚀"),
+        "2": ("🚀 Rockets / صواريخ", "🚀"),
+        "3": ("⚠️ Earthquake / زلزال", "⚠️"),
+        "6": ("🛩️ Hostile Aircraft / طائرة معادية", "🛩️"),
+        "13": ("⚠️ Infiltration / تسلل", "⚠️"),
+    }
+    alert_label, icon = cat_map.get(cat, ("🚀 Rockets / صواريخ", "🚀"))
+
+    # Collect all areas
+    all_areas = []
     for alert in alerts_data:
-        cat = str(alert.get("cat", ""))
-        title = alert.get("title", "")
         data = alert.get("data", [])
         if isinstance(data, str):
             data = [data]
+        all_areas.extend(data)
 
-        cat_map = {
-            "1": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
-            "2": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
-            "3": ("⚠️ Earthquake Alert", "إنذار زلزال"),
-            "6": ("🛩️ Hostile Aircraft Intrusion", "اختراق طائرة معادية"),
-            "13": ("⚠️ Terror Infiltration", "تسلل إرهابي"),
-        }
-        en, ar = cat_map.get(cat, (f"⚠️ Alert (Category {cat})", "إنذار"))
-        lines.append(f"<b>{en}</b>")
-        lines.append(f"<b>{ar}</b>")
-        if title:
-            lines.append(f"<i>{title}</i>")
-        lines.append("")
+    lines = [
+        f"🔴 <b>{alert_label}</b>",
+        f"{CLOCK_EMOJI} {now_str}",
+    ]
 
-        areas = [translate_area(a) for a in data]
-        total_areas += len(areas)
+    for area in all_areas[:15]:
+        lines.append(f"  {icon} {translate_area(area)}")
+    if len(all_areas) > 15:
+        lines.append(f"  +<b>{len(all_areas) - 15}</b> more / أخرى")
 
-        if len(areas) <= 10:
-            for area in areas:
-                lines.append(f"  {MISSILE_EMOJI} {area}")
-        else:
-            for area in areas[:8]:
-                lines.append(f"  {MISSILE_EMOJI} {area}")
-            lines.append(f"  ... +<b>{len(areas) - 8}</b> more / أخرى")
-        lines.append("")
-
-    if total_areas > 5:
-        lines.append(f"{WARNING_EMOJI} <b>Large barrage — {total_areas} areas / قصف واسع — {total_areas} منطقة</b>")
-        lines.append("")
-
-    lines.append(f"{SHIELD_EMOJI} <b>Seek shelter immediately / توجّهوا إلى الملاجئ فوراً</b>")
-    lines.append("")
     if falls > 0 or interceptions > 0:
-        lines.append(f"📊 {IMPACT_EMOJI} Falls / سقوط: <b>{falls}</b>  |  🛡️ Interceptions / اعتراضات: <b>{interceptions}</b>")
-        lines.append("")
-    lines.append("─" * 30)
-    lines.append("<i>Pikud HaOref / بيكود هعورف</i>")
+        lines.append(f"💥{falls} 🛡️{interceptions}")
 
     return "\n".join(lines)
 
@@ -181,7 +210,7 @@ def format_news(items: list, falls: int, interceptions: int) -> str:
     """Format RSS news items for Telegram — bilingual English/Arabic."""
     now_str = get_israel_time()
     lines = [
-        f"{NEWS_EMOJI} <b>News Update / تحديث أخبار</b>",
+        f"{NEWS_EMOJI} <b>Impact Report / تقرير سقوط</b>",
         f"{CLOCK_EMOJI} <i>{now_str}</i>",
         "",
         f"{IMPACT_EMOJI} Falls / سقوط: <b>{falls}</b>  |  🛡️ Interceptions / اعتراضات: <b>{interceptions}</b>",
@@ -248,25 +277,44 @@ class MissileAlertMonitor:
         return f"{alert.get('cat', '')}:{areas}:{now}"
 
     async def poll_pikud_haoref(self):
-        """Poll Pikud HaOref for siren alerts."""
+        """Poll for siren alerts — tries Pikud HaOref first, falls back to Tzofar API."""
+        # Try Pikud HaOref first
         text = curl_get(PIKUD_HAOREF_URL, headers=PIKUD_HAOREF_HEADERS)
         text = text.strip()
 
-        if not text or text == "null":
-            return
-
-        if text.startswith('\ufeff'):
-            text = text[1:]
-
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return
-
-        if isinstance(data, dict):
-            data = [data]
-        if not isinstance(data, list):
-            return
+        # If blocked (Access Denied / HTML response), try Tzofar API
+        if not text or text == "null" or text.startswith("<"):
+            text = curl_get("https://api.tzevaadom.co.il/notifications")
+            text = text.strip()
+            if not text or text == "[]":
+                return
+            # Tzofar returns a list of alert objects
+            try:
+                tzofar_data = json.loads(text)
+            except json.JSONDecodeError:
+                return
+            if not tzofar_data:
+                return
+            # Convert Tzofar format to standard format
+            data = []
+            for item in tzofar_data:
+                data.append({
+                    "id": item.get("notificationId", ""),
+                    "cat": item.get("threat", 1),
+                    "title": item.get("title", ""),
+                    "data": item.get("cities", []),
+                })
+        else:
+            if text.startswith('\ufeff'):
+                text = text[1:]
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                return
+            if isinstance(data, dict):
+                data = [data]
+            if not isinstance(data, list):
+                return
 
         new_alerts = []
         for alert in data:
@@ -287,15 +335,35 @@ class MissileAlertMonitor:
             msg = format_alert(new_alerts, self.fall_count, self.interception_count)
             send_telegram(msg, disable_notification=False)
 
+    # Only match articles about actual falls, impacts, interceptions, damage
+    IMPACT_NEWS_KEYWORDS = [
+        # English — falls/impacts
+        "fall", "fallen", "fell", "impact", "hit", "hits", "struck", "landed",
+        "direct hit", "shrapnel", "crater", "damage", "damaged",
+        # English — interceptions
+        "intercept", "intercepted", "interception", "iron dome", "shot down",
+        "air defense", "air defence",
+        # English — casualties from rockets
+        "wounded in rocket", "injured in rocket", "killed in rocket",
+        "wounded in missile", "injured in missile",
+        # Hebrew — falls/impacts
+        "נפילה", "נפילות", "נפל", "פגיעה", "פגיעות", "פגיעה ישירה",
+        "שברים", "נזק", "רסיסים",
+        # Hebrew — interceptions
+        "יירוט", "יורט", "כיפת ברזל",
+        # Arabic — falls/impacts
+        "سقوط", "سقطت", "إصابة مباشرة", "أضرار", "شظايا",
+        # Arabic — interceptions
+        "اعتراض", "القبة الحديدية",
+    ]
+
     async def poll_news_rss(self):
-        """Poll Israeli news RSS feeds for missile impact reports."""
+        """Poll Israeli news RSS feeds for fall/interception reports only."""
         try:
             import feedparser
         except ImportError:
             logger.warning("feedparser not available, skipping RSS")
             return
-
-        all_keywords = [kw.lower() for kw in ALERT_KEYWORDS_EN] + ALERT_KEYWORDS_HE
 
         new_items = []
         for source_name, feed_url in NEWS_RSS_FEEDS.items():
@@ -310,7 +378,8 @@ class MissileAlertMonitor:
                     link = entry.get("link", "")
                     combined = (title + " " + summary).lower()
 
-                    if not any(kw in combined for kw in all_keywords):
+                    # Only match fall/impact/interception articles
+                    if not any(kw in combined for kw in self.IMPACT_NEWS_KEYWORDS):
                         continue
 
                     if link in self.seen_news:
