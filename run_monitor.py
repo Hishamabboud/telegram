@@ -109,70 +109,99 @@ def escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# Hebrew → (English, Arabic) area translations
+AREA_TRANSLATIONS_AR = {
+    "תל אביב - מרכז העיר": "تل أبيب",
+    "תל אביב - דרום העיר": "تل أبيب",
+    "תל אביב - צפון הישן": "تل أبيب",
+    "חיפה - כרמל ועיר תחתית": "حيفا",
+    "חיפה - מערב": "حيفا",
+    "חיפה - נווה שאנן": "حيفا",
+    "ירושלים - מרכז": "القدس",
+    "באר שבע": "بئر السبع",
+    "אשדוד": "أسدود",
+    "אשקלון": "عسقلان",
+    "שדרות": "سديروت",
+    "נתיבות": "نتيفوت",
+    "אופקים": "أوفاكيم",
+    "קריית שמונה": "كريات شمونا",
+    "נהריה": "نهاريا",
+    "עכו": "عكا",
+    "כרמיאל": "كرميئيل",
+    "צפת": "صفد",
+    "טבריה": "طبريا",
+    "עפולה": "العفولة",
+    "מגדל העמק": "مجدال هعيمق",
+    "נצרת": "الناصرة",
+    "חדרה": "الخضيرة",
+    "נתניה": "نتانيا",
+    "הרצליה": "هرتسليا",
+    "פתח תקווה": "بيتح تكفا",
+    "ראשון לציון": "ريشون لتسيون",
+    "רחובות": "رحوفوت",
+    "לוד": "اللد",
+    "רמלה": "الرملة",
+    "מודיעין": "موديعين",
+    "בית שמש": "بيت شيمش",
+    "דימונה": "ديمونا",
+    "אילת": "إيلات",
+    "קריית גת": "كريات جات",
+    "מטולה": "متولا",
+    "מנרה": "منارة",
+    "מרגליות": "مرجليوت",
+    "בית ג'אן": "بيت جن",
+    "חורפיש": "حرفيش",
+}
+
+
 def translate_area(area: str) -> str:
-    eng = AREA_TRANSLATIONS.get(area)
-    if eng:
-        return f"{eng} ({area})"
+    eng = AREA_TRANSLATIONS.get(area, "")
+    ar = AREA_TRANSLATIONS_AR.get(area, "")
+    if eng and ar:
+        return f"{eng} / {ar}"
+    elif eng:
+        return eng
+    elif ar:
+        return f"{area} / {ar}"
     return area
 
 
 def format_alert(alerts_data: list, falls: int = 0, interceptions: int = 0) -> str:
     """Format siren alerts for Telegram — bilingual English/Arabic."""
     now_str = get_israel_time()
-    lines = [
-        f"{SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI} <b>RED ALERT / إنذار أحمر</b> {SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI}",
-        "",
-        f"{CLOCK_EMOJI} <b>{now_str}</b>",
-        "",
-    ]
 
-    total_areas = 0
+    # Determine alert type
+    cat = str(alerts_data[0].get("cat", "")) if alerts_data else ""
+    cat_map = {
+        "0": ("🚀 Rockets / صواريخ", "🚀"),
+        "1": ("🚀 Rockets / صواريخ", "🚀"),
+        "2": ("🚀 Rockets / صواريخ", "🚀"),
+        "3": ("⚠️ Earthquake / زلزال", "⚠️"),
+        "6": ("🛩️ Hostile Aircraft / طائرة معادية", "🛩️"),
+        "13": ("⚠️ Infiltration / تسلل", "⚠️"),
+    }
+    alert_label, icon = cat_map.get(cat, ("🚀 Rockets / صواريخ", "🚀"))
+
+    # Collect all areas
+    all_areas = []
     for alert in alerts_data:
-        cat = str(alert.get("cat", ""))
-        title = alert.get("title", "")
         data = alert.get("data", [])
         if isinstance(data, str):
             data = [data]
+        all_areas.extend(data)
 
-        cat_map = {
-            "0": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
-            "1": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
-            "2": ("🚀 Rocket / Missile Alert", "إنذار صواريخ"),
-            "3": ("⚠️ Earthquake Alert", "إنذار زلزال"),
-            "6": ("🛩️ Hostile Aircraft Intrusion", "اختراق طائرة معادية"),
-            "13": ("⚠️ Terror Infiltration", "تسلل إرهابي"),
-        }
-        # Default to rocket alert for unknown categories (most common)
-        en, ar = cat_map.get(cat, ("🚀 Rocket / Missile Alert", "إنذار صواريخ"))
-        lines.append(f"<b>{en}</b>")
-        lines.append(f"<b>{ar}</b>")
-        if title:
-            lines.append(f"<i>{title}</i>")
-        lines.append("")
+    lines = [
+        f"🔴 <b>{alert_label}</b>",
+        f"{CLOCK_EMOJI} {now_str}",
+    ]
 
-        areas = [translate_area(a) for a in data]
-        total_areas += len(areas)
+    for area in all_areas[:15]:
+        lines.append(f"  {icon} {translate_area(area)}")
+    if len(all_areas) > 15:
+        lines.append(f"  +<b>{len(all_areas) - 15}</b> more / أخرى")
 
-        if len(areas) <= 10:
-            for area in areas:
-                lines.append(f"  {MISSILE_EMOJI} {area}")
-        else:
-            for area in areas[:8]:
-                lines.append(f"  {MISSILE_EMOJI} {area}")
-            lines.append(f"  ... +<b>{len(areas) - 8}</b> more / أخرى")
-        lines.append("")
-
-    if total_areas > 5:
-        lines.append(f"{WARNING_EMOJI} <b>Large barrage — {total_areas} areas / قصف واسع — {total_areas} منطقة</b>")
-        lines.append("")
-
-    lines.append(f"{SHIELD_EMOJI} <b>Seek shelter immediately / توجّهوا إلى الملاجئ فوراً</b>")
-    lines.append("")
     if falls > 0 or interceptions > 0:
-        lines.append(f"📊 {IMPACT_EMOJI} Falls / سقوط: <b>{falls}</b>  |  🛡️ Interceptions / اعتراضات: <b>{interceptions}</b>")
-        lines.append("")
-    lines.append("─" * 30)
-    lines.append("<i>Pikud HaOref / بيكود هعورف</i>")
+        lines.append(f"💥{falls} 🛡️{interceptions}")
 
     return "\n".join(lines)
 
