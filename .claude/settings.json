@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(docker *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(ls *)",
+      "Read(*)",
+      "Write(config/*)",
+      "Write(sources/*)",
+      "Write(utils/*)",
+      "Write(main.py)",
+      "Write(requirements.txt)",
+      "Write(Dockerfile)",
+      "Write(README.md)",
+      "Write(CLAUDE.md)",
+      "Write(.claude/*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Write(.env)"
+    ]
+  },
+  "env": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONUNBUFFERED": "1"
+  }
+}

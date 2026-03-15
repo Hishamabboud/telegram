@@ -1,0 +1,20 @@
+# Secrets
+.env
+*.session
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+bot.log
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
