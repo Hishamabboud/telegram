@@ -197,13 +197,26 @@ def format_news(items: list) -> str:
 
 
 class MissileAlertMonitor:
-    """Main monitor using curl for all HTTP."""
+    """Main monitor using curl for all HTTP. News only triggers after siren alerts."""
+
+    # How long after a siren to keep polling news for impact reports
+    NEWS_WINDOW_MINUTES = 20
+    NEWS_POLL_INTERVAL = 30  # Poll news every 30s during active window
 
     def __init__(self):
         self.seen_alerts: set = set()
         self.seen_news: set = set()
         self.alert_count = 0
         self.news_count = 0
+        self._last_siren_time: datetime | None = None  # When last siren was detected
+
+    @property
+    def _news_window_active(self) -> bool:
+        """True if we're within the news-fetch window after a siren."""
+        if self._last_siren_time is None:
+            return False
+        elapsed = (datetime.now(timezone.utc) - self._last_siren_time).total_seconds()
+        return elapsed < self.NEWS_WINDOW_MINUTES * 60
 
     def _dedup_key(self, alert: dict) -> str:
         data = alert.get("data", [])
@@ -248,12 +261,13 @@ class MissileAlertMonitor:
 
         if new_alerts:
             self.alert_count += len(new_alerts)
-            logger.info(f"🚨 NEW SIREN ALERT! {len(new_alerts)} alert(s)")
+            self._last_siren_time = datetime.now(timezone.utc)
+            logger.info(f"🚨 NEW SIREN ALERT! {len(new_alerts)} alert(s) — news window activated for {self.NEWS_WINDOW_MINUTES}min")
             msg = format_alert(new_alerts)
             send_telegram(msg, disable_notification=False)
 
     async def poll_news_rss(self):
-        """Poll Israeli news RSS feeds for missile-related articles."""
+        """Poll Israeli news RSS feeds for missile impact reports."""
         try:
             import feedparser
         except ImportError:
@@ -313,21 +327,30 @@ class MissileAlertMonitor:
             await asyncio.sleep(PIKUD_HAOREF_POLL_INTERVAL)
 
     async def news_loop(self):
-        """Continuously poll news RSS every 60 seconds."""
-        logger.info(f"🟢 News RSS monitor started (polling every {NEWS_RSS_POLL_INTERVAL}s)")
+        """Poll news RSS only when triggered by a siren alert."""
+        logger.info("🟢 News monitor started (siren-triggered only)")
         while True:
-            try:
-                await self.poll_news_rss()
-            except Exception as e:
-                logger.error(f"News poll error: {e}")
-            await asyncio.sleep(NEWS_RSS_POLL_INTERVAL)
+            if self._news_window_active:
+                try:
+                    remaining = self.NEWS_WINDOW_MINUTES * 60 - (
+                        datetime.now(timezone.utc) - self._last_siren_time
+                    ).total_seconds()
+                    logger.info(f"📰 News window active ({remaining:.0f}s remaining), polling RSS...")
+                    await self.poll_news_rss()
+                except Exception as e:
+                    logger.error(f"News poll error: {e}")
+                await asyncio.sleep(self.NEWS_POLL_INTERVAL)
+            else:
+                # Idle — check every 5s if a siren has activated the window
+                await asyncio.sleep(5)
 
     async def status_loop(self):
         """Log periodic status every 5 minutes."""
         while True:
             await asyncio.sleep(300)
+            window_status = "ACTIVE" if self._news_window_active else "idle"
             logger.info(
-                f"📊 Status: {self.alert_count} alerts, {self.news_count} news items posted"
+                f"📊 Status: {self.alert_count} alerts, {self.news_count} news items posted | news window: {window_status}"
             )
 
     async def run(self):
@@ -357,7 +380,7 @@ class MissileAlertMonitor:
             f"🟢 <b>Bot started successfully</b>\n\n"
             f"Monitoring:\n"
             f"• Pikud HaOref (real-time alerts) — every 3s\n"
-            f"• Israeli news feeds — every 60s\n\n"
+            f"• Israeli news feeds — triggered by siren alerts ({self.NEWS_WINDOW_MINUTES}min window)\n\n"
             f"Alerts will be posted automatically.",
             disable_notification=True,
         )
