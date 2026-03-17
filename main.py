@@ -201,6 +201,17 @@ class MissileAlertBot:
                 logger.error(f"Error in daily summary loop: {e}")
                 await asyncio.sleep(60)
 
+    async def _safe_channel_monitor(self) -> None:
+        """Run the Telegram channel monitor, logging errors instead of crashing."""
+        try:
+            await self.channel_monitor.run()
+        except ConnectionError as e:
+            logger.warning(f"Telegram channel monitor unavailable: {e}")
+            logger.warning("Bot continues without Telegram channel monitoring")
+        except Exception as e:
+            logger.error(f"Telegram channel monitor failed: {e}")
+            logger.warning("Bot continues without Telegram channel monitoring")
+
     # ─── Main Lifecycle ───
 
     async def start(self):
@@ -232,7 +243,7 @@ class MissileAlertBot:
         tasks = [
             asyncio.create_task(self.pikud_monitor.run(), name="pikud-haoref"),
             asyncio.create_task(self.news_monitor.run(), name="news-monitor"),
-            asyncio.create_task(self.channel_monitor.run(), name="telegram-channels"),
+            asyncio.create_task(self._safe_channel_monitor(), name="telegram-channels"),
             asyncio.create_task(self.daily_summary_loop(), name="daily-summary"),
         ]
 
