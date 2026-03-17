@@ -18,6 +18,8 @@ from config.settings import (
     NEWS_RSS_POLL_INTERVAL,
     ALERT_KEYWORDS_EN,
     ALERT_KEYWORDS_HE,
+    STRICT_WAR_KEYWORDS_EN,
+    STRICT_WAR_KEYWORDS_HE,
     DEDUP_WINDOW_SECONDS,
 )
 
@@ -60,7 +62,10 @@ class IsraeliNewsMonitor:
         self.seen_ids: set[str] = set()
         self._running = False
         self._session: Optional[aiohttp.ClientSession] = None
+        # General keywords for initial relevance check
         self.all_keywords = [kw.lower() for kw in ALERT_KEYWORDS_EN + ALERT_KEYWORDS_HE]
+        # Strict keywords — article must match at least one to pass
+        self.strict_keywords = [kw.lower() for kw in STRICT_WAR_KEYWORDS_EN + STRICT_WAR_KEYWORDS_HE]
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -69,9 +74,15 @@ class IsraeliNewsMonitor:
         return self._session
 
     def _is_relevant(self, title: str, summary: str) -> bool:
-        """Check if an article is relevant to missile/rocket activity."""
+        """Check if an article is relevant to Israel-Iran war activity.
+        Uses strict filtering: must match a general keyword AND a strict
+        Israel-Iran war keyword to avoid showing unrelated country news."""
         combined = f"{title} {summary}".lower()
-        return any(kw in combined for kw in self.all_keywords)
+        has_general = any(kw in combined for kw in self.all_keywords)
+        if not has_general:
+            return False
+        # Must also match a strict Israel-Iran war keyword
+        return any(kw in combined for kw in self.strict_keywords)
 
     def _extract_locations(self, text: str) -> list[str]:
         """Try to extract Israeli city/location names from text."""

@@ -24,6 +24,7 @@ from config.settings import (
     TELEGRAM_CHANNEL_ID,
     LOG_LEVEL,
     LOG_FILE,
+    ALERT_BATCH_WINDOW_SECONDS,
 )
 from sources.pikud_haoref import PikudHaorefMonitor
 from sources.news_monitor import IsraeliNewsMonitor
@@ -31,6 +32,7 @@ from sources.telegram_channels import TelegramChannelMonitor
 from utils.telegram_sender import TelegramSender
 from utils.formatter import (
     format_siren_alert,
+    format_batched_alert_summary,
     format_news_update,
     format_daily_summary,
     format_status_message,
@@ -65,10 +67,16 @@ class MissileAlertBot:
         self._running = False
         self._daily_summary_task = None
 
+        # ─── Alert Batching ───
+        self._alert_batch: list = []          # Buffered alerts
+        self._batch_timer_task = None         # The 30s countdown task
+        self._batch_lock = asyncio.Lock()
+
     # ─── Alert Callbacks ───
 
     async def on_siren_alert(self, alerts):
-        """Called when new siren alerts are detected from Pikud HaOref."""
+        """Called when new siren alerts are detected from Pikud HaOref.
+        Buffers alerts for 30 seconds, then sends a combined summary."""
         logger.info(f"🚨 New siren alert! {len(alerts)} alert(s) detected")
 
         # Track stats
@@ -86,14 +94,37 @@ class MissileAlertBot:
             reason=reason,
         )
 
-        # Format and send
-        message = format_siren_alert(alerts)
+        # ─── Batch alerts ───
+        async with self._batch_lock:
+            self._alert_batch.extend(alerts)
+            logger.info(f"📦 Buffered {len(alerts)} alert(s) — total in batch: {len(self._alert_batch)}")
+
+            # Start the 30s timer if not already running
+            if self._batch_timer_task is None or self._batch_timer_task.done():
+                self._batch_timer_task = asyncio.create_task(self._flush_alert_batch())
+
+    async def _flush_alert_batch(self):
+        """Wait 30 seconds then send a combined summary of all batched alerts."""
+        await asyncio.sleep(ALERT_BATCH_WINDOW_SECONDS)
+
+        async with self._batch_lock:
+            if not self._alert_batch:
+                return
+
+            batch = list(self._alert_batch)
+            self._alert_batch.clear()
+
+        logger.info(f"📤 Flushing alert batch: {len(batch)} alert(s)")
+
+        # Send the batched summary (Arabic + English)
+        message = format_batched_alert_summary(batch)
         if message:
             success = await self.telegram.send_alert(message)
             if success:
-                logger.info(f"✅ Alert posted: {total_areas} areas")
+                total = sum(len(a.areas_hebrew) for a in batch)
+                logger.info(f"✅ Batched alert summary posted: {total} areas from {len(batch)} alert(s)")
             else:
-                logger.error("❌ Failed to post siren alert")
+                logger.error("❌ Failed to post batched alert summary")
 
     async def on_news_update(self, news_items):
         """Called when new missile-related news articles are found."""

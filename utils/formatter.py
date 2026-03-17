@@ -1,6 +1,7 @@
 """
 Telegram Message Formatter
 Formats missile alerts and news items into rich Telegram messages.
+Bilingual: Arabic + English output.
 """
 from datetime import datetime, timezone, timedelta
 from config.settings import (
@@ -18,8 +19,6 @@ def get_israel_time(utc_dt: datetime = None) -> str:
     """Convert UTC datetime to Israel time string."""
     if utc_dt is None:
         utc_dt = datetime.now(timezone.utc)
-    # Simplified — use +3 (IDT) during summer, +2 (IST) otherwise
-    # For production, use pytz or zoneinfo
     month = utc_dt.month
     if 3 <= month <= 10:
         israel_dt = utc_dt + IDT
@@ -32,55 +31,87 @@ def get_israel_time(utc_dt: datetime = None) -> str:
 
 def format_siren_alert(alerts) -> str:
     """
-    Format Pikud HaOref siren alerts for Telegram.
-    
+    Format Pikud HaOref siren alerts for Telegram (single alert, non-batched).
+    Kept for backwards compatibility.
+    """
+    if not alerts:
+        return ""
+    return format_batched_alert_summary(alerts)
+
+
+def format_batched_alert_summary(alerts) -> str:
+    """
+    Format a batched summary of siren alerts in Arabic + English.
+    Called after the 30-second batching window closes.
+
     Args:
-        alerts: List of PikudHaorefAlert objects
-    
+        alerts: List of PikudHaorefAlert objects (accumulated over 30s)
+
     Returns:
-        Formatted Telegram message string (HTML parse mode)
+        Formatted bilingual Telegram message (HTML parse mode)
     """
     if not alerts:
         return ""
 
     now_str = get_israel_time()
 
-    # Group alerts by type
+    # Collect all unique areas with translations
+    # (english, arabic, hebrew) — deduplicated by hebrew name
+    seen_areas = {}
+    alert_type_label = ""
+    for alert in alerts:
+        if not alert_type_label:
+            alert_type_label = alert.alert_type
+        for eng, ar, heb in alert.areas_trilingual:
+            if heb not in seen_areas:
+                seen_areas[heb] = (eng, ar, heb)
+
+    areas = list(seen_areas.values())
+    total = len(areas)
+
     lines = []
-    lines.append(f"{SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI} <b>RED ALERT — INCOMING THREAT</b> {SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI}")
+
+    # ═══ HEADER ═══
+    lines.append(f"{SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI} <b>ALERT / إنذار</b> {SIREN_EMOJI}{SIREN_EMOJI}{SIREN_EMOJI}")
     lines.append("")
     lines.append(f"{CLOCK_EMOJI} <b>{now_str}</b>")
     lines.append("")
 
-    total_areas = 0
-    for alert in alerts:
-        lines.append(f"<b>{alert.alert_type}</b>")
-        if alert.title:
-            lines.append(f"<i>{alert.title}</i>")
+    # ═══ ALERT TYPE ═══
+    if alert_type_label:
+        lines.append(f"<b>{alert_type_label}</b>")
         lines.append("")
 
-        areas_en = alert.areas_english
-        total_areas += len(areas_en)
-
-        if len(areas_en) <= 10:
-            for area in areas_en:
-                lines.append(f"  {MISSILE_EMOJI} {area}")
-        else:
-            # For large barrages, group and summarize
-            for area in areas_en[:8]:
-                lines.append(f"  {MISSILE_EMOJI} {area}")
-            lines.append(f"  ... and <b>{len(areas_en) - 8} more areas</b>")
-        lines.append("")
-
-    if total_areas > 5:
-        lines.append(f"{WARNING_EMOJI} <b>Large-scale barrage — {total_areas} areas under alert</b>")
-        lines.append("")
-
-    lines.append(f"{SHIELD_EMOJI} <b>Seek shelter immediately. Stay in protected space for 10 minutes.</b>")
+    # ═══ SUMMARY LINE ═══
+    lines.append(f"<b>{total} location{'s' if total != 1 else ''} under alert</b>")
+    lines.append(f"<b>{total} {'مواقع' if total > 1 else 'موقع'} تحت الإنذار</b>")
     lines.append("")
+
+    # ═══ LOCATIONS — ENGLISH ═══
+    lines.append(f"<b>Locations:</b>")
+    for eng, ar, heb in areas:
+        lines.append(f"  {MISSILE_EMOJI} {_escape_html(eng)}")
+    lines.append("")
+
+    # ═══ LOCATIONS — ARABIC ═══
+    lines.append(f"<b>:المواقع</b>")
+    for eng, ar, heb in areas:
+        lines.append(f"  {MISSILE_EMOJI} {_escape_html(ar)}")
+    lines.append("")
+
+    # ═══ BARRAGE WARNING ═══
+    if total > 5:
+        lines.append(f"{WARNING_EMOJI} <b>Large barrage — {total} areas / مطر صاروخي كثيف — {total} مناطق</b>")
+        lines.append("")
+
+    # ═══ SAFETY MESSAGE ═══
+    lines.append(f"{SHIELD_EMOJI} <b>Seek shelter immediately. Stay for 10 minutes.</b>")
+    lines.append(f"{SHIELD_EMOJI} <b>احتموا فوراً. ابقوا في الملجأ 10 دقائق.</b>")
+    lines.append("")
+
+    # ═══ FOOTER ═══
     lines.append("─" * 30)
-    lines.append(f"<i>Source: Pikud HaOref (Home Front Command)</i>")
-    lines.append(f"<i>🤖 Automated alert • @YourChannelName</i>")
+    lines.append(f"<i>Source: Pikud HaOref | المصدر: بيكود هعورف</i>")
 
     return "\n".join(lines)
 
@@ -88,12 +119,7 @@ def format_siren_alert(alerts) -> str:
 def format_news_update(news_items) -> str:
     """
     Format news articles about missile impacts for Telegram.
-    
-    Args:
-        news_items: List of NewsItem objects
-    
-    Returns:
-        Formatted Telegram message string (HTML parse mode)
+    Bilingual Arabic + English.
     """
     if not news_items:
         return ""
@@ -101,25 +127,25 @@ def format_news_update(news_items) -> str:
     now_str = get_israel_time()
 
     lines = []
-    lines.append(f"{NEWS_EMOJI} <b>MISSILE NEWS UPDATE</b>")
+    lines.append(f"{NEWS_EMOJI} <b>WAR NEWS UPDATE / تحديث أخبار الحرب</b>")
     lines.append(f"{CLOCK_EMOJI} <i>{now_str}</i>")
     lines.append("")
 
-    for i, item in enumerate(news_items[:5], 1):  # Max 5 items per message
+    for i, item in enumerate(news_items[:5], 1):
         lines.append(f"<b>{i}. {_escape_html(item.title)}</b>")
         if item.snippet:
             lines.append(f"<i>{_escape_html(item.snippet[:200])}</i>")
-        lines.append(f"📎 <a href=\"{item.link}\">Read more ({item.source})</a>")
+        lines.append(f"📎 <a href=\"{item.link}\">Read more / اقرأ المزيد ({item.source})</a>")
         if item.published:
             lines.append(f"  {CLOCK_EMOJI} {get_israel_time(item.published)}")
         lines.append("")
 
     if len(news_items) > 5:
-        lines.append(f"<i>+ {len(news_items) - 5} more articles</i>")
+        lines.append(f"<i>+ {len(news_items) - 5} more articles / مقالات إضافية</i>")
         lines.append("")
 
     lines.append("─" * 30)
-    lines.append(f"<i>🤖 Israeli media monitor • @YourChannelName</i>")
+    lines.append(f"<i>Israel-Iran War Monitor / مراقب حرب إسرائيل-إيران</i>")
 
     return "\n".join(lines)
 
@@ -127,29 +153,22 @@ def format_news_update(news_items) -> str:
 def format_impact_report(location: str, details: str, source: str = "") -> str:
     """
     Format a confirmed missile impact report.
-    
-    Args:
-        location: City/area of impact
-        details: Description of what happened
-        source: News source
-    
-    Returns:
-        Formatted Telegram message (HTML)
+    Bilingual Arabic + English.
     """
     now_str = get_israel_time()
 
     lines = []
-    lines.append(f"{IMPACT_EMOJI}{IMPACT_EMOJI} <b>CONFIRMED IMPACT REPORT</b> {IMPACT_EMOJI}{IMPACT_EMOJI}")
+    lines.append(f"{IMPACT_EMOJI}{IMPACT_EMOJI} <b>IMPACT REPORT / تقرير إصابة</b> {IMPACT_EMOJI}{IMPACT_EMOJI}")
     lines.append("")
     lines.append(f"{CLOCK_EMOJI} <b>{now_str}</b>")
     lines.append("")
-    lines.append(f"{MAP_EMOJI} <b>Location:</b> {_escape_html(location)}")
-    lines.append(f"📋 <b>Details:</b> {_escape_html(details)}")
+    lines.append(f"{MAP_EMOJI} <b>Location / الموقع:</b> {_escape_html(location)}")
+    lines.append(f"📋 <b>Details / التفاصيل:</b> {_escape_html(details)}")
     if source:
-        lines.append(f"📎 <b>Source:</b> {_escape_html(source)}")
+        lines.append(f"📎 <b>Source / المصدر:</b> {_escape_html(source)}")
     lines.append("")
     lines.append("─" * 30)
-    lines.append(f"<i>🤖 Automated report • @YourChannelName</i>")
+    lines.append(f"<i>Israel-Iran War Monitor / مراقب حرب إسرائيل-إيران</i>")
 
     return "\n".join(lines)
 
@@ -157,36 +176,35 @@ def format_impact_report(location: str, details: str, source: str = "") -> str:
 def format_daily_summary(total_alerts: int, total_areas: int, top_areas: list, news_count: int) -> str:
     """
     Format a daily summary of alert activity.
-    
-    Args:
-        total_alerts: Number of alert events today
-        total_areas: Total areas that received alerts
-        top_areas: List of (area_name, count) tuples
-        news_count: Number of related news articles
-    
-    Returns:
-        Formatted Telegram message (HTML)
+    Bilingual Arabic + English.
     """
+    from config.settings import AREA_TRANSLATIONS
+
     now_str = get_israel_time()
 
     lines = []
-    lines.append(f"📊 <b>DAILY ALERT SUMMARY</b>")
+    lines.append(f"📊 <b>DAILY SUMMARY / ملخص يومي</b>")
     lines.append(f"{CLOCK_EMOJI} <i>{now_str}</i>")
     lines.append("")
-    lines.append(f"  {SIREN_EMOJI} Total alert events: <b>{total_alerts}</b>")
-    lines.append(f"  {MAP_EMOJI} Areas affected: <b>{total_areas}</b>")
-    lines.append(f"  {NEWS_EMOJI} Related news articles: <b>{news_count}</b>")
+    lines.append(f"  {SIREN_EMOJI} Alert events / أحداث إنذار: <b>{total_alerts}</b>")
+    lines.append(f"  {MAP_EMOJI} Areas affected / مناطق متأثرة: <b>{total_areas}</b>")
+    lines.append(f"  {NEWS_EMOJI} News articles / مقالات إخبارية: <b>{news_count}</b>")
     lines.append("")
 
     if top_areas:
-        lines.append("<b>Most targeted areas:</b>")
+        lines.append("<b>Most targeted / الأكثر استهدافاً:</b>")
         for area, count in top_areas[:10]:
             bar = "█" * min(count, 20)
-            lines.append(f"  {area}: {bar} ({count})")
+            entry = AREA_TRANSLATIONS.get(area)
+            if entry and isinstance(entry, tuple):
+                eng, ar = entry[0], entry[1]
+                lines.append(f"  {eng} / {ar}: {bar} ({count})")
+            else:
+                lines.append(f"  {area}: {bar} ({count})")
         lines.append("")
 
     lines.append("─" * 30)
-    lines.append(f"<i>🤖 Daily summary • @YourChannelName</i>")
+    lines.append(f"<i>Israel-Iran War Monitor / مراقب حرب إسرائيل-إيران</i>")
 
     return "\n".join(lines)
 
@@ -204,12 +222,7 @@ def format_status_message(status: str) -> str:
 def format_telegram_channel_update(messages) -> str:
     """
     Format messages from monitored Israeli Telegram channels.
-
-    Args:
-        messages: List of TelegramChannelMessage objects
-
-    Returns:
-        Formatted Telegram message string (HTML parse mode)
+    Bilingual Arabic + English.
     """
     if not messages:
         return ""
@@ -217,7 +230,7 @@ def format_telegram_channel_update(messages) -> str:
     now_str = get_israel_time()
 
     lines = []
-    lines.append(f"📡 <b>TELEGRAM CHANNEL REPORT</b>")
+    lines.append(f"📡 <b>CHANNEL REPORT / تقرير القنوات</b>")
     lines.append(f"{CLOCK_EMOJI} <i>{now_str}</i>")
     lines.append("")
 
@@ -226,17 +239,17 @@ def format_telegram_channel_update(messages) -> str:
         lines.append(f"<b>{i}. [{source_label}]</b>")
         lines.append(f"<i>{_escape_html(msg.snippet[:300])}</i>")
         if msg.link:
-            lines.append(f"📎 <a href=\"{msg.link}\">View original</a>")
+            lines.append(f"📎 <a href=\"{msg.link}\">View / عرض</a>")
         if msg.timestamp:
             lines.append(f"  {CLOCK_EMOJI} {get_israel_time(msg.timestamp)}")
         lines.append("")
 
     if len(messages) > 5:
-        lines.append(f"<i>+ {len(messages) - 5} more messages</i>")
+        lines.append(f"<i>+ {len(messages) - 5} more / المزيد</i>")
         lines.append("")
 
     lines.append("─" * 30)
-    lines.append(f"<i>📡 Israeli Telegram channels • @YourChannelName</i>")
+    lines.append(f"<i>Israel-Iran War Monitor / مراقب حرب إسرائيل-إيران</i>")
 
     return "\n".join(lines)
 

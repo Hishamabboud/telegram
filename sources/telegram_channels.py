@@ -39,6 +39,8 @@ from config.settings import (
     MONITORED_CHANNELS,
     ALERT_KEYWORDS_EN,
     ALERT_KEYWORDS_HE,
+    STRICT_WAR_KEYWORDS_EN,
+    STRICT_WAR_KEYWORDS_HE,
     ACTIVE_WINDOW_MINUTES,
     SCRAPE_LOOKBACK_MINUTES,
 )
@@ -152,6 +154,8 @@ class TelegramChannelMonitor:
             "impact reported", "explosion heard", "siren",
         ]
         self.all_keywords.extend([kw.lower() for kw in extra])
+        # Strict Israel-Iran war keywords for filtering interceptions/impacts
+        self.strict_keywords = [kw.lower() for kw in STRICT_WAR_KEYWORDS_EN + STRICT_WAR_KEYWORDS_HE]
 
     # ═══════════════════════════════════════════
     #  PUBLIC: Activation / Trigger
@@ -233,7 +237,7 @@ class TelegramChannelMonitor:
                     if msg.date and msg.date < lookback:
                         break
                     text = msg.text or msg.raw_text or ""
-                    if text and self._is_relevant(text):
+                    if text and self._is_relevant(text, strict=True):
                         dedup_key = f"{username}:{msg.id}"
                         if dedup_key not in self.seen_ids:
                             self.seen_ids.add(dedup_key)
@@ -265,11 +269,19 @@ class TelegramChannelMonitor:
     #  MESSAGE HANDLING
     # ═══════════════════════════════════════════
 
-    def _is_relevant(self, text: str) -> bool:
+    def _is_relevant(self, text: str, strict: bool = False) -> bool:
+        """Check if text is relevant.
+        If strict=True, requires both a general keyword AND a strict
+        Israel-Iran war keyword (for interceptions/impact reports)."""
         if not text:
             return False
         text_lower = text.lower()
-        return any(kw in text_lower for kw in self.all_keywords)
+        has_general = any(kw in text_lower for kw in self.all_keywords)
+        if not has_general:
+            return False
+        if strict:
+            return any(kw in text_lower for kw in self.strict_keywords)
+        return True
 
     def _get_channel_tier(self, entity_id: int) -> int:
         """Return the tier (1, 2, 3) of a channel by entity ID."""
@@ -307,7 +319,10 @@ class TelegramChannelMonitor:
             if not self.is_active and tier != 1:
                 return
 
-            if not self._is_relevant(text):
+            # Tier 1 (alert channels): general keyword match
+            # Tier 2/3 (news/analysis): strict Israel-Iran war filter
+            use_strict = tier != 1
+            if not self._is_relevant(text, strict=use_strict):
                 return
 
             channel_name = getattr(chat, 'title', 'Unknown')

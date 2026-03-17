@@ -45,12 +45,37 @@ class PikudHaorefAlert:
         """Translate area names to English where possible."""
         translated = []
         for area in self.areas_hebrew:
-            eng = AREA_TRANSLATIONS.get(area)
-            if eng:
-                translated.append(f"{eng} ({area})")
+            entry = AREA_TRANSLATIONS.get(area)
+            if entry:
+                eng = entry[0] if isinstance(entry, tuple) else entry
+                translated.append(eng)
             else:
                 translated.append(area)
         return translated
+
+    @property
+    def areas_arabic(self) -> list[str]:
+        """Translate area names to Arabic where possible."""
+        translated = []
+        for area in self.areas_hebrew:
+            entry = AREA_TRANSLATIONS.get(area)
+            if entry and isinstance(entry, tuple) and len(entry) > 1:
+                translated.append(entry[1])
+            else:
+                translated.append(area)
+        return translated
+
+    @property
+    def areas_trilingual(self) -> list[tuple[str, str, str]]:
+        """Return (english, arabic, hebrew) tuples for each area."""
+        result = []
+        for area in self.areas_hebrew:
+            entry = AREA_TRANSLATIONS.get(area)
+            if entry and isinstance(entry, tuple):
+                result.append((entry[0], entry[1], area))
+            else:
+                result.append((area, area, area))
+        return result
 
     @property
     def alert_type(self) -> str:
