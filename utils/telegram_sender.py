@@ -126,6 +126,96 @@ class TelegramSender:
 
         return False
 
+    async def send_photo(
+        self,
+        photo_path: str,
+        caption: str = "",
+        parse_mode: str = "HTML",
+        disable_notification: bool = False,
+    ) -> bool:
+        """
+        Send a photo (local file) with an optional HTML caption.
+
+        Captions over Telegram's 1024-char photo-caption limit are truncated;
+        send the full text separately if needed. Mirrors the retry / rate-limit
+        behaviour of send_message().
+        """
+        if not self.bot_token or not self.channel_id:
+            logger.error("Telegram bot token or channel ID not configured!")
+            return False
+
+        # Telegram caps photo captions at 1024 characters. Truncate on a line
+        # boundary so we never cut through an HTML tag or entity (our captions
+        # keep every tag within a single line), which would trigger a parse error.
+        caption = self._truncate_caption(caption)
+
+        url = f"{self.api_base}/sendPhoto"
+
+        for attempt in range(3):
+            try:
+                session = await self._get_session()
+                with open(photo_path, "rb") as fh:
+                    form = aiohttp.FormData()
+                    form.add_field("chat_id", str(self.channel_id))
+                    if caption:
+                        form.add_field("caption", caption)
+                        if parse_mode:
+                            form.add_field("parse_mode", parse_mode)
+                    form.add_field("disable_notification", str(disable_notification).lower())
+                    form.add_field(
+                        "photo", fh, filename="map.png", content_type="image/png"
+                    )
+
+                    async with session.post(url, data=form) as resp:
+                        data = await resp.json()
+
+                        if data.get("ok"):
+                            logger.info(f"Photo sent to {self.channel_id}")
+                            return True
+
+                        error_code = data.get("error_code", 0)
+                        description = data.get("description", "Unknown error")
+
+                        if error_code == 429:
+                            retry_after = data.get("parameters", {}).get("retry_after", 5)
+                            logger.warning(f"Rate limited (photo). Retrying after {retry_after}s")
+                            await asyncio.sleep(retry_after)
+                            continue
+
+                        # On an HTML parse error, retry once as a plain-text caption
+                        # rather than dropping the photo entirely.
+                        if error_code == 400 and "parse" in description.lower() and parse_mode:
+                            logger.info("Retrying photo caption without HTML parse mode...")
+                            parse_mode = ""
+                            continue
+
+                        logger.error(f"Telegram sendPhoto error: {error_code} - {description}")
+                        return False
+
+            except FileNotFoundError:
+                logger.error(f"Photo file not found: {photo_path}")
+                return False
+            except aiohttp.ClientError as e:
+                logger.error(f"Network error sending photo (attempt {attempt+1}): {e}")
+                await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                logger.error(f"Unexpected error sending photo: {e}")
+                return False
+
+        return False
+
+    @staticmethod
+    def _truncate_caption(caption: str, limit: int = 1024) -> str:
+        """Truncate a caption to Telegram's photo-caption limit on a newline
+        boundary, so an HTML tag/entity is never split. Falls back to a hard
+        cut only if there is no earlier newline."""
+        if len(caption) <= limit:
+            return caption
+        cut = caption.rfind("\n", 0, limit)
+        if cut > 0:
+            return caption[:cut].rstrip()
+        return caption[: limit - 3] + "..."
+
     async def send_alert(self, text: str) -> bool:
         """Send an urgent alert (with notification sound)."""
         return await self.send_message(text, disable_notification=False)

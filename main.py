@@ -15,6 +15,7 @@ Usage:
 """
 import asyncio
 import logging
+import os
 import signal
 import sys
 from datetime import datetime, timezone, timedelta
@@ -29,6 +30,7 @@ from config.settings import (
 from sources.pikud_haoref import PikudHaorefMonitor
 from sources.news_monitor import IsraeliNewsMonitor
 from sources.telegram_channels import TelegramChannelMonitor
+from sources.sabren_news import SabrenNewsMonitor
 from utils.telegram_sender import TelegramSender
 from utils.formatter import (
     format_siren_alert,
@@ -38,6 +40,8 @@ from utils.formatter import (
     format_status_message,
     format_telegram_channel_update,
 )
+from utils.attack_formatter import format_attack_caption
+from utils.map_renderer import render_alert_map
 from utils.stats import AlertStats
 
 # ─── Logging Setup ───
@@ -64,6 +68,7 @@ class MissileAlertBot:
         self.pikud_monitor = PikudHaorefMonitor(on_alert_callback=self.on_siren_alert)
         self.news_monitor = IsraeliNewsMonitor(on_news_callback=self.on_news_update)
         self.channel_monitor = TelegramChannelMonitor(on_message_callback=self.on_channel_message)
+        self.sabren_monitor = SabrenNewsMonitor(on_alert_callback=self.on_sabren_alert)
         self._running = False
         self._daily_summary_task = None
 
@@ -158,6 +163,53 @@ class MissileAlertBot:
             else:
                 logger.error("❌ Failed to post channel update")
 
+    async def on_sabren_alert(self, alerts):
+        """Called when Sabereen News reports explosions/strikes with a location.
+        Renders a Tzofar-style map per alert and posts it with a bilingual caption."""
+        logger.info(f"💥 Sabereen explosion report(s): {len(alerts)}")
+
+        self.stats.record_news_items(len(alerts))
+
+        for alert in alerts:
+            loc = alert.location
+            out_path = f"/tmp/sabren_map_{alert.message_id}.png"
+            try:
+                render_alert_map(
+                    country=loc.get("country"),
+                    lat=loc["lat"],
+                    lon=loc["lon"],
+                    confirmed=alert.confirmed,
+                    label_en=loc["name_en"],
+                    label_ar=loc["name_ar"],
+                    type_en=alert.type_en,
+                    out_path=out_path,
+                )
+                caption = format_attack_caption(
+                    location_en=loc["name_en"],
+                    location_ar=loc["name_ar"],
+                    country=loc.get("country"),
+                    type_en=alert.type_en,
+                    type_ar=alert.type_ar,
+                    confirmed=alert.confirmed,
+                    source_link=alert.link,
+                    timestamp=alert.timestamp,
+                    excerpt=alert.excerpt,
+                )
+                success = await self.telegram.send_photo(out_path, caption=caption)
+                if success:
+                    logger.info(f"✅ Explosion map posted: {loc['name_en']} ({alert.type_en})")
+                else:
+                    logger.error(f"❌ Failed to post explosion map: {loc['name_en']}")
+            except Exception as e:
+                logger.error(f"Error handling Sabereen alert {alert.id}: {e}")
+            finally:
+                # Don't let rendered maps accumulate in /tmp on a long-running bot.
+                try:
+                    if os.path.exists(out_path):
+                        os.remove(out_path)
+                except OSError:
+                    pass
+
     # ─── Daily Summary ───
 
     async def daily_summary_loop(self):
@@ -244,6 +296,7 @@ class MissileAlertBot:
             asyncio.create_task(self.pikud_monitor.run(), name="pikud-haoref"),
             asyncio.create_task(self.news_monitor.run(), name="news-monitor"),
             asyncio.create_task(self._safe_channel_monitor(), name="telegram-channels"),
+            asyncio.create_task(self.sabren_monitor.run(), name="sabren-news"),
             asyncio.create_task(self.daily_summary_loop(), name="daily-summary"),
         ]
 
@@ -254,7 +307,8 @@ class MissileAlertBot:
                 "Monitoring:\n"
                 "• Pikud HaOref (real-time alerts) — every 3s\n"
                 "• Israeli news feeds — every 60s\n"
-                "• Israeli Telegram channels — real-time\n\n"
+                "• Israeli Telegram channels — real-time\n"
+                "• Sabereen News explosion map — every 90s\n\n"
                 "Alerts will be posted automatically."
             )
         )
@@ -284,6 +338,7 @@ class MissileAlertBot:
         await self.pikud_monitor.stop()
         await self.news_monitor.stop()
         await self.channel_monitor.stop()
+        await self.sabren_monitor.stop()
         await self.telegram.close()
 
         logger.info("Bot shut down complete.")

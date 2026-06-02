@@ -23,6 +23,20 @@ MEDIA_SCRAPE_POLL_INTERVAL = 120      # Web scraping fallback
 ACTIVE_WINDOW_MINUTES = 10   # How long to monitor all channels after a siren
 SCRAPE_LOOKBACK_MINUTES = 5  # How far back to scrape when activated
 
+# ─── Sabereen News Explosion Map Monitor ───
+# Public Arabic news channel scraped via its web preview (no MTProto needed).
+SABREN_CHANNEL = "SabrenNewss"          # channel username (without @)
+SABREN_POLL_INTERVAL = 90               # seconds between web-preview polls
+# A post must contain at least one of these to be considered an explosion/strike
+# report worth mapping (Arabic + English).
+SABREN_TRIGGER_KEYWORDS = [
+    "انفجار", "دوي", "استهداف", "استهدف", "استهدفت", "قصف", "غارة",
+    "صاروخ", "صواريخ", "صلية", "مسيرة", "مسيّرة", "مسيرات", "مسيّرات",
+    "اشتباك", "إطلاق نار", "غارة جوية", "قصف مدفعي", "اغتيال", "تفجير",
+    "explosion", "blast", "airstrike", "strike", "shelling", "rocket",
+    "missile", "drone",
+]
+
 # ─── Alert Sources ───
 # Pikud HaOref (Home Front Command) — real-time rocket alert API
 PIKUD_HAOREF_URL = "https://www.oref.org.il/WarningMessages/alert/alerts.json"
