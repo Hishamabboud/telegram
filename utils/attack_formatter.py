@@ -35,9 +35,10 @@ UNCONFIRMED_MARKERS = [
     "غير مؤكد", "unconfirmed", "reports of", "alleged", "claims",
 ]
 CONFIRMED_MARKERS = [
-    "استهداف", "استهدف", "استهدفت", "قصف", "قصفت", "إصابة", "أصاب", "أصابت",
+    "استهداف", "ستهدف", "قصف", "قصفت", "إصابة", "أصاب", "أصابت",
     "تدمير", "دمر", "دمرت", "تم استهداف", "أكد", "أكدت", "مؤكد",
-    "confirmed", "targeted", "struck", "destroyed",
+    "ضرب", "ضربت", "سقوط", "سقطت",
+    "confirmed", "targeted", "struck", "destroyed", "hit",
 ]
 
 

@@ -83,6 +83,12 @@ ME_LOCATIONS: dict[str, dict] = {
     "mosul": {"en": "Mosul", "ar": "الموصل", "lat": 36.3450, "lon": 43.1450, "country": "Iraq", "aliases": []},
     "basra": {"en": "Basra", "ar": "البصرة", "lat": 30.5085, "lon": 47.7804, "country": "Iraq", "aliases": []},
 
+    # ───────────── Kuwait ─────────────
+    "kuwait_city": {"en": "Kuwait City", "ar": "مدينة الكويت", "lat": 29.3759, "lon": 47.9774, "country": "Kuwait", "aliases": ["الكويت"]},
+    "ali_al_salem": {"en": "Ali Al Salem Air Base", "ar": "قاعدة علي السالم الجوية", "lat": 29.3467, "lon": 47.5208, "country": "Kuwait", "aliases": ["علي السالم", "علي سالم", "قاعدة عرب"]},
+    "camp_arifjan": {"en": "Camp Arifjan", "ar": "معسكر عريفجان", "lat": 28.8654, "lon": 48.1417, "country": "Kuwait", "aliases": ["عريفجان"]},
+    "ahmadi": {"en": "Ahmadi", "ar": "الأحمدي", "lat": 29.0769, "lon": 48.0838, "country": "Kuwait", "aliases": []},
+
     # ───────────── Iran ─────────────
     "tehran": {"en": "Tehran", "ar": "طهران", "lat": 35.6892, "lon": 51.3890, "country": "Iran", "aliases": []},
     "isfahan": {"en": "Isfahan", "ar": "أصفهان", "lat": 32.6546, "lon": 51.6680, "country": "Iran", "aliases": []},
