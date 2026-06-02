@@ -20,6 +20,9 @@ import signal
 import sys
 from datetime import datetime, timezone, timedelta
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from config.settings import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
