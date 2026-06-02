@@ -47,6 +47,10 @@ GEOJSON_PATH = os.path.join(
 # Middle East bounding box: lon_min, lon_max, lat_min, lat_max
 ME_BBOX = (24, 64, 11, 43)
 
+# Half-width (in degrees) of the zoom window centered on the impact point.
+# ~2.6° ≈ a city + its surrounding region, so the exact spot is clearly legible.
+ZOOM_HALFSPAN = 2.6
+
 # ─── Theme ───
 BG = "#0a0e14"
 LAND = "#1b2430"
@@ -91,6 +95,7 @@ def render_alert_map(
     label_en: str,
     label_ar: str,
     type_en: str = "",
+    zoom_halfspan: float = ZOOM_HALFSPAN,
     out_path: str = "/tmp/explosion_map.png",
 ) -> str:
     """
@@ -124,15 +129,16 @@ def render_alert_map(
             ax.add_collection(PatchCollection(
                 target, facecolor=fill_color, edgecolor=edge_color, linewidths=1.6))
 
-    # Translucent "impact radius" glow around the location.
-    ax.add_patch(Circle((lon, lat), radius=0.9, facecolor=fill_color,
-                        edgecolor=edge_color, linewidth=1.2, zorder=4))
+    # Translucent "impact radius" glow around the location, scaled to the zoom.
+    ax.add_patch(Circle((lon, lat), radius=zoom_halfspan * 0.13, facecolor=fill_color,
+                        edgecolor=edge_color, linewidth=1.6, zorder=4))
     # Exact location marker.
-    ax.plot(lon, lat, marker="o", markersize=13, color="#ff2b2b",
-            markeredgecolor="white", markeredgewidth=1.6, zorder=6)
+    ax.plot(lon, lat, marker="o", markersize=16, color="#ff2b2b",
+            markeredgecolor="white", markeredgewidth=1.8, zorder=6)
 
-    ax.set_xlim(ME_BBOX[0], ME_BBOX[1])
-    ax.set_ylim(ME_BBOX[2], ME_BBOX[3])
+    # Zoom in tight on the impact point so the location is clearly legible.
+    ax.set_xlim(lon - zoom_halfspan, lon + zoom_halfspan)
+    ax.set_ylim(lat - zoom_halfspan, lat + zoom_halfspan)
     ax.set_aspect("equal")
     ax.axis("off")
 
@@ -150,10 +156,8 @@ def render_alert_map(
              fontsize=15, color="#e6edf3")
     fig.text(0.5, 0.895, _ar(label_ar), ha="center", va="top",
              fontsize=14, color="#c9d1d9")
-    fig.text(0.5, 0.045, f"● {status_en} / {_ar(status_ar)}", ha="center", va="bottom",
+    fig.text(0.5, 0.03, f"● {status_en} / {_ar(status_ar)}", ha="center", va="bottom",
              fontsize=14, fontweight="bold", color=banner)
-    fig.text(0.5, 0.015, f"Sabereen News monitor  •  {_ar('مرصد سبيرين')}", ha="center", va="bottom",
-             fontsize=10, color="#8b949e")
 
     fig.subplots_adjust(left=0.02, right=0.98, top=0.87, bottom=0.08)
     fig.savefig(out_path, dpi=130, facecolor=BG)
