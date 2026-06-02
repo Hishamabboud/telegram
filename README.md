@@ -45,6 +45,7 @@ A real-time Telegram channel bot that monitors Israeli alert systems and media f
 
 - **Real-time siren alerts** — Polls Pikud HaOref every 3 seconds for incoming rocket/missile alerts
 - **City & area identification** — Shows which cities/areas are under alert with Hebrew + English names
+- **Explosion map (Tzofar-style)** — Monitors the @SabrenNewss channel for explosion/strike reports across the Middle East, then posts a zoomed-in map (affected country filled red + point marker) with a bilingual English+Arabic caption noting the attack type and whether it's confirmed or unconfirmed
 - **Israeli media monitoring** — Scans RSS feeds from major Israeli news outlets for impact reports
 - **Keyword filtering** — Filters news by 40+ Hebrew and English missile/rocket keywords
 - **Smart deduplication** — Avoids duplicate posts for the same alert event
@@ -101,6 +102,57 @@ docker run -d \
   missile-alert-bot
 ```
 
+`--restart unless-stopped` keeps the bot alive across crashes and reboots. Check
+it with `docker logs -f missile-alerts` and update with
+`git pull && docker build -t missile-alert-bot . && docker restart missile-alerts`.
+
+## Running 24/7 (PC or Raspberry Pi)
+
+The bot is a long-running process — start it once on an always-on machine and it
+polls and posts on its own. Only `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL_ID`
+are required (the Telethon Israeli-channel monitor is optional and fails
+gracefully if `TELEGRAM_API_ID/HASH/PHONE` are unset).
+
+**Docker (recommended)** — use the commands above with `--restart unless-stopped`.
+
+**Native + systemd (lighter on a Raspberry Pi):**
+
+```bash
+cd telegram
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create `/etc/systemd/system/missile-bot.service`:
+
+```ini
+[Unit]
+Description=Missile Alert Bot
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/pi/telegram
+Environment=TELEGRAM_BOT_TOKEN=your-token
+Environment=TELEGRAM_CHANNEL_ID=@your_channel
+ExecStart=/home/pi/telegram/venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now missile-bot
+journalctl -u missile-bot -f      # watch logs
+```
+
+**Raspberry Pi notes:**
+- Use **64-bit** Raspberry Pi OS — the 32-bit build lacks some `matplotlib`/`pillow` wheels.
+- The first `docker build` / `pip install` takes a few minutes (matplotlib, pillow).
+- On restart the explosion monitor re-primes its dedup, so it never replays the backlog — only new reports are posted.
+- Rendered maps are written to `/tmp` and deleted after sending, so there's no disk buildup.
+
 ## Message Examples
 
 ### 🔴 Siren Alert
@@ -143,10 +195,17 @@ missile-alert-bot/
 ├── sources/
 │   ├── pikud_haoref.py        # Home Front Command alert monitor
 │   ├── news_monitor.py        # Israeli news RSS feed monitor
+│   ├── telegram_channels.py   # Israeli Telegram channel monitor (Telethon)
+│   ├── sabren_news.py         # Sabereen News explosion-map monitor
 ├── utils/
 │   ├── formatter.py           # Telegram message formatting
-│   ├── telegram_sender.py     # Telegram Bot API client
+│   ├── telegram_sender.py     # Telegram Bot API client (send_message/send_photo)
+│   ├── me_geocoder.py         # Middle East location → coordinates gazetteer
+│   ├── attack_formatter.py    # Attack-type/confirmation classifier + caption
+│   ├── map_renderer.py        # Tzofar-style explosion map (matplotlib)
 │   ├── stats.py               # Daily statistics tracker
+├── assets/
+│   ├── countries.geo.json     # Bundled country borders (offline map)
 ├── requirements.txt
 ├── Dockerfile
 ├── .env.example
@@ -161,6 +220,7 @@ All settings are in `config/settings.py`:
 |---------|---------|-------------|
 | `PIKUD_HAOREF_POLL_INTERVAL` | 3s | How often to check for siren alerts |
 | `NEWS_RSS_POLL_INTERVAL` | 60s | How often to check news feeds |
+| `SABREN_POLL_INTERVAL` | 90s | How often to check @SabrenNewss for explosion reports |
 | `DEDUP_WINDOW_SECONDS` | 300s | Deduplication window for alerts |
 
 ## Adding More Sources
