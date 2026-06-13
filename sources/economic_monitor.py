@@ -233,7 +233,7 @@ class WorldEconomicMonitor:
         await self.callback(report)
 
     async def run(self):
-        """Main loop — posts once daily, checks every 30 minutes."""
+        """Main loop — posts once per day, then sleeps until next day."""
         self._running = True
         logger.info("🟢 World Economic Monitor started")
 
@@ -244,7 +244,8 @@ class WorldEconomicMonitor:
             logger.error(f"Initial economic report error: {e}")
 
         while self._running:
-            await asyncio.sleep(1800)  # Check every 30 min
+            # Sleep until next day (check once per hour)
+            await asyncio.sleep(3600)
             try:
                 await self.poll_once()
             except Exception as e:
